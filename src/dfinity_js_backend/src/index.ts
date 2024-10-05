@@ -214,7 +214,7 @@ export default Canister({
     }
 
     const productOpt = productsStorage.get(payload.productId);
-    if ("None" in productOpt) {
+    if (!productOpt) {
       return Err({ NotFound: "Product not found" });
     }
 
@@ -271,12 +271,11 @@ export default Canister({
 
     // Check if products in cart are available and have sufficient stock
     for (const item of cartItems) {
-      const productOpt = productsStorage.get(item.productId);
-      if ("None" in productOpt) {
+      const product = productsStorage.get(item.productId);
+      if (!product) {
         return Err({ NotFound: `Product not found: ${item.productId}` });
       }
 
-      const product = productOpt.Some;
       if (BigInt(product.stock) < BigInt(item.quantity)) {
         return Err({
           Error: `Insufficient stock for product: ${product.name}`,
@@ -324,12 +323,11 @@ export default Canister({
     [text, text],
     Result(Message, Message),
     (productId, amount) => {
-      const productOpt = productsStorage.get(productId);
-      if ("None" in productOpt) {
+      const product = productsStorage.get(productId);
+      if (!product) {
         return Err({ NotFound: "Product not found" });
       }
 
-      const product = productOpt.Some;
       product.escrowBalance = BigInt(product.escrowBalance) + BigInt(amount);
       productsStorage.insert(productId, product);
 
@@ -338,12 +336,11 @@ export default Canister({
   ),
 
   release_payment: update([text], Result(Message, Message), (productId) => {
-    const productOpt = productsStorage.get(productId);
-    if ("None" in productOpt) {
+    const product = productsStorage.get(productId);
+    if (!product) {
       return Err({ NotFound: "Product not found" });
     }
 
-    const product = productOpt.Some;
     if (product.status !== "sold") {
       return Err({ Error: "Product has not been sold yet." });
     }
@@ -362,12 +359,11 @@ export default Canister({
     [text, text],
     Result(Message, Message),
     (productId, amount) => {
-      const productOpt = productsStorage.get(productId);
-      if ("None" in productOpt) {
+      const product = productsStorage.get(productId);
+      if (!product) {
         return Err({ NotFound: "Product not found" });
       }
 
-      const product = productOpt.Some;
       if (BigInt(product.escrowBalance) < BigInt(amount)) {
         return Err({ Error: "Insufficient escrow balance." });
       }
@@ -381,12 +377,11 @@ export default Canister({
 
   // Dispute Management
   dispute_product: update([text], Result(Message, Message), (productId) => {
-    const productOpt = productsStorage.get(productId);
-    if ("None" in productOpt) {
+    const product = productsStorage.get(productId);
+    if (!product) {
       return Err({ NotFound: "Product not found" });
     }
 
-    const product = productOpt.Some;
     product.disputeStatus = true;
     product.status = "dispute raised";
     productsStorage.insert(productId, product);
@@ -398,12 +393,11 @@ export default Canister({
     [text, bool],
     Result(Message, Message),
     (productId, resolution) => {
-      const productOpt = productsStorage.get(productId);
-      if ("None" in productOpt) {
+      const product = productsStorage.get(productId);
+      if (!product) {
         return Err({ NotFound: "Product not found" });
       }
 
-      const product = productOpt.Some;
       if (!product.disputeStatus) {
         return Err({ Error: "No dispute to resolve." });
       }
@@ -420,12 +414,11 @@ export default Canister({
 
   // Mark Product as Sold
   mark_product_sold: update([text], Result(Message, Message), (productId) => {
-    const productOpt = productsStorage.get(productId);
-    if ("None" in productOpt) {
+    const product = productsStorage.get(productId);
+    if (!product) {
       return Err({ NotFound: "Product not found" });
     }
 
-    const product = productOpt.Some;
     if (product.status !== "Bid Accepted") {
       return Err({ Error: "Bid not accepted or product already sold." });
     }
@@ -441,12 +434,11 @@ export default Canister({
     [text, text],
     Result(Message, Message),
     (productId, buyerAddress) => {
-      const productOpt = productsStorage.get(productId);
-      if ("None" in productOpt) {
+      const product = productsStorage.get(productId);
+      if (!product) {
         return Err({ NotFound: "Product not found" });
       }
 
-      const product = productOpt.Some;
       if (product.buyerAddress) {
         return Err({ Error: "Product has already been bid on." });
       }
@@ -460,12 +452,11 @@ export default Canister({
   ),
 
   accept_bid: update([text], Result(Message, Message), (productId) => {
-    const productOpt = productsStorage.get(productId);
-    if ("None" in productOpt) {
+    const product = productsStorage.get(productId);
+    if (!product) {
       return Err({ NotFound: "Product not found" });
     }
 
-    const product = productOpt.Some;
     if (!product.buyerAddress) {
       return Err({ Error: "No bid to accept." });
     }
@@ -481,12 +472,12 @@ export default Canister({
     [text, text],
     Result(Message, Message),
     (productId, rating) => {
-      const productOpt = productsStorage.get(productId);
-      if ("None" in productOpt) {
+      const product = productsStorage.get(productId);
+
+      if (!product) {
         return Err({ NotFound: "Product not found" });
       }
 
-      const product = productOpt.Some;
       product.rating = rating;
       productsStorage.insert(productId, product);
 
@@ -499,12 +490,11 @@ export default Canister({
     [text, text],
     Result(Message, Message),
     (productId, category) => {
-      const productOpt = productsStorage.get(productId);
-      if ("None" in productOpt) {
+      const product = productsStorage.get(productId);
+      if (!product) {
         return Err({ NotFound: "Product not found" });
       }
 
-      const product = productOpt.Some;
       product.category = category;
       productsStorage.insert(productId, product);
 
@@ -516,12 +506,11 @@ export default Canister({
     [text, text],
     Result(Message, Message),
     (productId, description) => {
-      const productOpt = productsStorage.get(productId);
-      if ("None" in productOpt) {
+      const product = productsStorage.get(productId);
+      if (!product) {
         return Err({ NotFound: "Product not found" });
       }
 
-      const product = productOpt.Some;
       product.description = description;
       productsStorage.insert(productId, product);
 
@@ -533,12 +522,11 @@ export default Canister({
     [text, text],
     Result(Message, Message),
     (productId, price) => {
-      const productOpt = productsStorage.get(productId);
-      if ("None" in productOpt) {
+      const product = productsStorage.get(productId);
+      if (!product) {
         return Err({ NotFound: "Product not found" });
       }
 
-      const product = productOpt.Some;
       product.price = price;
       productsStorage.insert(productId, product);
       return Ok({ Success: "Product price updated." });
@@ -549,12 +537,11 @@ export default Canister({
     [text, text],
     Result(Message, Message),
     (productId, status) => {
-      const productOpt = productsStorage.get(productId);
-      if ("None" in productOpt) {
+      const product = productsStorage.get(productId);
+      if (!product) {
         return Err({ NotFound: "Product not found" });
       }
 
-      const product = productOpt.Some;
       product.status = status;
       productsStorage.insert(productId, product);
 
