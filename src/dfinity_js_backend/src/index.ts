@@ -513,7 +513,7 @@ export default Canister({
   ),
 
   update_product_price: update(
-    [text, text],
+    [text, float64],
     Result(Message, Message),
     (productId, price) => {
       const product = productsStorage.get(productId);
