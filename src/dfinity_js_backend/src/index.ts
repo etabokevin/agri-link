@@ -322,7 +322,7 @@ export default Canister({
         return Err({ NotFound: "Product not found" });
       }
 
-      product.escrowBalance = BigInt(product.escrowBalance) + BigInt(amount);
+      product.escrowBalance = product.escrowBalance + amount;
       productsStorage.insert(productId, product);
 
       return Ok({ Success: "Escrow balance updated." });
@@ -463,7 +463,7 @@ export default Canister({
 
   // Rating System
   rate_product: update(
-    [text, text],
+    [text, float64],
     Result(Message, Message),
     (productId, rating) => {
       const product = productsStorage.get(productId);
@@ -481,7 +481,7 @@ export default Canister({
 
   // Update Functions
   update_product_category: update(
-    [text, text],
+    [text, Category],
     Result(Message, Message),
     (productId, category) => {
       const product = productsStorage.get(productId);
