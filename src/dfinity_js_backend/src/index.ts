@@ -178,6 +178,14 @@ export default Canister({
       });
     }
 
+    // Validate if price and stock are numbers
+    if (isNaN(Number(payload.price))) {
+      return Err({ InvalidPayload: "Price must be a number" });
+    }
+    if (isNaN(Number(payload.stock))) {
+      return Err({ InvalidPayload: "Stock must be a number" });
+    }
+
     const sellerId = ic.caller().toText();
     const productId = uuidv4();
     const product = {
