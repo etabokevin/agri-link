@@ -16,6 +16,8 @@ import {
   update,
   StableBTreeMap,
   ic,
+  float64,
+  nat64,
 } from "azle/experimental";
 
 import { v4 as uuidv4 } from "uuid";
@@ -52,12 +54,12 @@ const Product = Record({
   name: text,
   description: text,
   category: Category,
-  price: text,
-  stock: text, // Number of items available in stock
-  rating: text, // Average rating
+  price: float64,
+  stock: nat64, // Number of items available in stock
+  rating: float64, // Average rating
   reviews: Vec(text), // Product reviews
   status: text, // e.g., 'available', 'out of stock'
-  escrowBalance: text,
+  escrowBalance: float64,
   disputeStatus: text,
   buyerAddress: Opt(text),
 });
@@ -65,7 +67,7 @@ const Product = Record({
 // Define the CartItem struct to represent items in the cart
 const CartItem = Record({
   productId: text,
-  quantity: text,
+  quantity: nat64,
   price: text, // Price at the time of adding to the cart
 });
 
@@ -74,7 +76,7 @@ const Order = Record({
   id: text,
   buyerId: text,
   products: Vec(CartItem),
-  totalAmount: text,
+  totalAmount: float64,
   status: text, // e.g., 'pending', 'paid', 'shipped', 'delivered'
   createdAt: text,
 });
@@ -83,7 +85,7 @@ const Order = Record({
 const Review = Record({
   productId: text,
   userId: text,
-  rating: text,
+  rating: float64,
   comment: text,
   createdAt: text,
 });
@@ -108,14 +110,14 @@ const ProductPayload = Record({
   name: text,
   description: text,
   category: Category,
-  price: text,
-  stock: text,
+  price: float64,
+  stock: nat64,
 });
 
 // Review Payload
 const ReviewPayload = Record({
   productId: text,
-  rating: text,
+  rating: float64,
   comment: text,
 });
 
@@ -178,24 +180,16 @@ export default Canister({
       });
     }
 
-    // Validate if price and stock are numbers
-    if (isNaN(Number(payload.price))) {
-      return Err({ InvalidPayload: "Price must be a number" });
-    }
-    if (isNaN(Number(payload.stock))) {
-      return Err({ InvalidPayload: "Stock must be a number" });
-    }
-
     const sellerId = ic.caller().toText();
     const productId = uuidv4();
     const product = {
       id: productId,
       sellerId,
       ...payload,
-      rating: "0",
+      rating: 0,
       reviews: [],
       status: BigInt(payload.stock) > 0n ? "available" : "out of stock",
-      escrowBalance: "0",
+      escrowBalance: 0,
       disputeStatus: "false",
       buyerAddress: None,
     };
@@ -320,7 +314,7 @@ export default Canister({
 
   // Escrow Management
   add_to_escrow: update(
-    [text, text],
+    [text, nat64],
     Result(Message, Message),
     (productId, amount) => {
       const product = productsStorage.get(productId);
