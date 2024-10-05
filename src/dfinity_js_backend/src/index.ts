@@ -1,24 +1,23 @@
 import {
-  query,
-  update,
-  text,
-  Null,
-  Record,
-  StableBTreeMap,
+  Canister,
+  Opt,
+  Result,
+  bool,
   Variant,
   Vec,
   None,
-  Some,
   Ok,
   Err,
-  ic,
+  text,
+  Null,
+  Record,
   Principal,
-  Opt,
-  Result,
-  nat64,
-  bool,
-  Canister,
-} from "azle";
+  query,
+  update,
+  StableBTreeMap,
+  ic,
+} from "azle/experimental";
+
 import { v4 as uuidv4 } from "uuid";
 
 // User Role Struct
@@ -102,7 +101,7 @@ const UserPayload = Record({
   name: text,
   email: text,
   role: UserRole,
-})
+});
 
 // Product Payload
 const ProductPayload = Record({
@@ -236,16 +235,20 @@ export default Canister({
   }),
 
   // View Reviews for a Product
-  viewProductReviews: query([text], Result(Vec(Review), Message), (productId) => {
-    const reviews = reviewsStorage
-      .values()
-      .filter((review) => review.productId === productId);
-    if (reviews.length === 0) {
-      return Err({ NotFound: "No reviews found for this product" });
-    }
+  viewProductReviews: query(
+    [text],
+    Result(Vec(Review), Message),
+    (productId) => {
+      const reviews = reviewsStorage
+        .values()
+        .filter((review) => review.productId === productId);
+      if (reviews.length === 0) {
+        return Err({ NotFound: "No reviews found for this product" });
+      }
 
-    return Ok(reviews);
-  }),
+      return Ok(reviews);
+    }
+  ),
 
   // Checkout and Create an Order (Consumer only)
   checkout: update([Vec(CartItem)], Result(Order, Message), (cartItems) => {
@@ -309,18 +312,22 @@ export default Canister({
   }),
 
   // Escrow Management
-  add_to_escrow: update([text, text], Result(Message, Message), (productId, amount) => {
-    const productOpt = productsStorage.get(productId);
-    if ("None" in productOpt) {
-      return Err({ NotFound: "Product not found" });
+  add_to_escrow: update(
+    [text, text],
+    Result(Message, Message),
+    (productId, amount) => {
+      const productOpt = productsStorage.get(productId);
+      if ("None" in productOpt) {
+        return Err({ NotFound: "Product not found" });
+      }
+
+      const product = productOpt.Some;
+      product.escrowBalance = BigInt(product.escrowBalance) + BigInt(amount);
+      productsStorage.insert(productId, product);
+
+      return Ok({ Success: "Escrow balance updated." });
     }
-
-    const product = productOpt.Some;
-    product.escrowBalance = BigInt(product.escrowBalance) + BigInt(amount);
-    productsStorage.insert(productId, product);
-
-    return Ok({ Success: "Escrow balance updated." });
-  }),
+  ),
 
   release_payment: update([text], Result(Message, Message), (productId) => {
     const productOpt = productsStorage.get(productId);
@@ -343,22 +350,26 @@ export default Canister({
     return Ok({ Success: "Payment released." });
   }),
 
-  withdraw_from_escrow: update([text, text], Result(Message, Message), (productId, amount) => {
-    const productOpt = productsStorage.get(productId);
-    if ("None" in productOpt) {
-      return Err({ NotFound: "Product not found" });
+  withdraw_from_escrow: update(
+    [text, text],
+    Result(Message, Message),
+    (productId, amount) => {
+      const productOpt = productsStorage.get(productId);
+      if ("None" in productOpt) {
+        return Err({ NotFound: "Product not found" });
+      }
+
+      const product = productOpt.Some;
+      if (BigInt(product.escrowBalance) < BigInt(amount)) {
+        return Err({ Error: "Insufficient escrow balance." });
+      }
+
+      product.escrowBalance = BigInt(product.escrowBalance) - BigInt(amount);
+      productsStorage.insert(productId, product);
+
+      return Ok({ Success: "Amount withdrawn from escrow." });
     }
-
-    const product = productOpt.Some;
-    if (BigInt(product.escrowBalance) < BigInt(amount)) {
-      return Err({ Error: "Insufficient escrow balance." });
-    }
-
-    product.escrowBalance = BigInt(product.escrowBalance) - BigInt(amount);
-    productsStorage.insert(productId, product);
-
-    return Ok({ Success: "Amount withdrawn from escrow." });
-  }),
+  ),
 
   // Dispute Management
   dispute_product: update([text], Result(Message, Message), (productId) => {
@@ -375,25 +386,29 @@ export default Canister({
     return Ok({ Success: "Dispute raised successfully." });
   }),
 
-  resolve_dispute: update([text, bool], Result(Message, Message), (productId, resolution) => {
-    const productOpt = productsStorage.get(productId);
-    if ("None" in productOpt) {
-      return Err({ NotFound: "Product not found" });
-    }
+  resolve_dispute: update(
+    [text, bool],
+    Result(Message, Message),
+    (productId, resolution) => {
+      const productOpt = productsStorage.get(productId);
+      if ("None" in productOpt) {
+        return Err({ NotFound: "Product not found" });
+      }
 
-    const product = productOpt.Some;
-    if (!product.disputeStatus) {
-      return Err({ Error: "No dispute to resolve." });
-    }
+      const product = productOpt.Some;
+      if (!product.disputeStatus) {
+        return Err({ Error: "No dispute to resolve." });
+      }
 
-    product.disputeStatus = false;
-    product.status = resolution
+      product.disputeStatus = false;
+      product.status = resolution
         ? "dispute resolved - funds to seller"
         : "dispute resolved - funds to buyer";
-    productsStorage.insert(productId, product);
+      productsStorage.insert(productId, product);
 
-    return Ok({ Success: "Dispute resolved." });
-  }),
+      return Ok({ Success: "Dispute resolved." });
+    }
+  ),
 
   // Mark Product as Sold
   mark_product_sold: update([text], Result(Message, Message), (productId) => {
@@ -414,23 +429,27 @@ export default Canister({
   }),
 
   // Bidding and Acceptance of Bid
-  product_bid: update([text, text], Result(Message, Message), (productId, buyerAddress) => {
-    const productOpt = productsStorage.get(productId);
-    if ("None" in productOpt) {
-      return Err({ NotFound: "Product not found" });
+  product_bid: update(
+    [text, text],
+    Result(Message, Message),
+    (productId, buyerAddress) => {
+      const productOpt = productsStorage.get(productId);
+      if ("None" in productOpt) {
+        return Err({ NotFound: "Product not found" });
+      }
+
+      const product = productOpt.Some;
+      if (product.buyerAddress) {
+        return Err({ Error: "Product has already been bid on." });
+      }
+
+      product.buyerAddress = buyerAddress;
+      product.status = "Bid Placed";
+      productsStorage.insert(productId, product);
+
+      return Ok({ Success: "Bid placed successfully." });
     }
-
-    const product = productOpt.Some;
-    if (product.buyerAddress) {
-      return Err({ Error: "Product has already been bid on." });
-    }
-
-    product.buyerAddress = buyerAddress;
-    product.status = "Bid Placed";
-    productsStorage.insert(productId, product);
-
-    return Ok({ Success: "Bid placed successfully." });
-  }),
+  ),
 
   accept_bid: update([text], Result(Message, Message), (productId) => {
     const productOpt = productsStorage.get(productId);
@@ -450,68 +469,88 @@ export default Canister({
   }),
 
   // Rating System
-  rate_product: update([text, text], Result(Message, Message), (productId, rating) => {
-    const productOpt = productsStorage.get(productId);
-    if ("None" in productOpt) {
-      return Err({ NotFound: "Product not found" });
+  rate_product: update(
+    [text, text],
+    Result(Message, Message),
+    (productId, rating) => {
+      const productOpt = productsStorage.get(productId);
+      if ("None" in productOpt) {
+        return Err({ NotFound: "Product not found" });
+      }
+
+      const product = productOpt.Some;
+      product.rating = rating;
+      productsStorage.insert(productId, product);
+
+      return Ok({ Success: "Product rated successfully." });
     }
-
-    const product = productOpt.Some;
-    product.rating = rating;
-    productsStorage.insert(productId, product);
-
-    return Ok({ Success: "Product rated successfully." });
-  }),
+  ),
 
   // Update Functions
-  update_product_category: update([text, text], Result(Message, Message), (productId, category) => {
-    const productOpt = productsStorage.get(productId);
-    if ("None" in productOpt) {
-      return Err({ NotFound: "Product not found" });
+  update_product_category: update(
+    [text, text],
+    Result(Message, Message),
+    (productId, category) => {
+      const productOpt = productsStorage.get(productId);
+      if ("None" in productOpt) {
+        return Err({ NotFound: "Product not found" });
+      }
+
+      const product = productOpt.Some;
+      product.category = category;
+      productsStorage.insert(productId, product);
+
+      return Ok({ Success: "Product category updated." });
     }
+  ),
 
-    const product = productOpt.Some;
-    product.category = category;
-    productsStorage.insert(productId, product);
+  update_product_description: update(
+    [text, text],
+    Result(Message, Message),
+    (productId, description) => {
+      const productOpt = productsStorage.get(productId);
+      if ("None" in productOpt) {
+        return Err({ NotFound: "Product not found" });
+      }
 
-    return Ok({ Success: "Product category updated." });
-  }),
+      const product = productOpt.Some;
+      product.description = description;
+      productsStorage.insert(productId, product);
 
-  update_product_description: update([text, text], Result(Message, Message), (productId, description) => {
-    const productOpt = productsStorage.get(productId);
-    if ("None" in productOpt) {
-      return Err({ NotFound: "Product not found" });
+      return Ok({ Success: "Product description updated." });
     }
+  ),
 
-    const product = productOpt.Some;
-    product.description = description;
-    productsStorage.insert(productId, product);
+  update_product_price: update(
+    [text, text],
+    Result(Message, Message),
+    (productId, price) => {
+      const productOpt = productsStorage.get(productId);
+      if ("None" in productOpt) {
+        return Err({ NotFound: "Product not found" });
+      }
 
-    return Ok({ Success: "Product description updated." });
-  }),
-
-  update_product_price: update([text, text], Result(Message, Message), (productId, price) => {
-    const productOpt = productsStorage.get(productId);
-    if ("None" in productOpt) {
-      return Err({ NotFound: "Product not found" });
+      const product = productOpt.Some;
+      product.price = price;
+      productsStorage.insert(productId, product);
+      return Ok({ Success: "Product price updated." });
     }
+  ),
 
-    const product = productOpt.Some;
-    product.price = price;
-    productsStorage.insert(productId, product);
-    return Ok({ Success: "Product price updated." });
-  }),
+  update_product_status: update(
+    [text, text],
+    Result(Message, Message),
+    (productId, status) => {
+      const productOpt = productsStorage.get(productId);
+      if ("None" in productOpt) {
+        return Err({ NotFound: "Product not found" });
+      }
 
-  update_product_status: update([text, text], Result(Message, Message), (productId, status) => {
-    const productOpt = productsStorage.get(productId);
-    if ("None" in productOpt) {
-      return Err({ NotFound: "Product not found" });
+      const product = productOpt.Some;
+      product.status = status;
+      productsStorage.insert(productId, product);
+
+      return Ok({ Success: "Product status updated." });
     }
-
-    const product = productOpt.Some;
-    product.status = status;
-    productsStorage.insert(productId, product);
-
-    return Ok({ Success: "Product status updated." });
-  }),
+  ),
 });
