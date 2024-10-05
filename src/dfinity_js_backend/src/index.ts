@@ -68,7 +68,7 @@ const Product = Record({
 const CartItem = Record({
   productId: text,
   quantity: nat64,
-  price: text, // Price at the time of adding to the cart
+  price: float64, // Price at the time of adding to the cart
 });
 
 // Define the Order struct to represent a user's order
@@ -259,7 +259,7 @@ export default Canister({
       return Err({ InvalidPayload: "Cart is empty" });
     }
 
-    let totalAmount = BigInt(0);
+    let totalAmount = 0;
     const buyerId = ic.caller().toText();
     const productsInOrder: any[] = [];
 
@@ -270,13 +270,13 @@ export default Canister({
         return Err({ NotFound: `Product not found: ${item.productId}` });
       }
 
-      if (BigInt(product.stock) < BigInt(item.quantity)) {
+      if (product.stock < item.quantity) {
         return Err({
           Error: `Insufficient stock for product: ${product.name}`,
         });
       }
 
-      totalAmount += BigInt(product.price) * BigInt(item.quantity);
+      totalAmount += Number(product.price) * Number(item.quantity);
       productsInOrder.push({
         productId: item.productId,
         quantity: item.quantity,
@@ -289,7 +289,7 @@ export default Canister({
       id: orderId,
       buyerId,
       products: productsInOrder,
-      totalAmount: totalAmount.toString(),
+      totalAmount: totalAmount,
       status: "pending",
       createdAt: new Date().toISOString(),
     };
@@ -343,7 +343,7 @@ export default Canister({
       return Err({ Error: "Dispute unresolved, cannot release payment." });
     }
 
-    product.escrowBalance = "0";
+    product.escrowBalance = 0;
     productsStorage.insert(productId, product);
 
     return Ok({ Success: "Payment released." });
