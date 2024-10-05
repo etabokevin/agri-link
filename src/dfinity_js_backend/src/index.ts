@@ -60,7 +60,7 @@ const Product = Record({
   reviews: Vec(text), // Product reviews
   status: text, // e.g., 'available', 'out of stock'
   escrowBalance: float64,
-  disputeStatus: text,
+  disputeStatus: bool,
   buyerAddress: Opt(text),
 });
 
@@ -190,7 +190,7 @@ export default Canister({
       reviews: [],
       status: BigInt(payload.stock) > 0n ? "available" : "out of stock",
       escrowBalance: 0,
-      disputeStatus: "false",
+      disputeStatus: false,
       buyerAddress: None,
     };
 
@@ -322,7 +322,7 @@ export default Canister({
         return Err({ NotFound: "Product not found" });
       }
 
-      product.escrowBalance = product.escrowBalance + amount;
+      product.escrowBalance = product.escrowBalance + Number(amount);
       productsStorage.insert(productId, product);
 
       return Ok({ Success: "Escrow balance updated." });
@@ -433,11 +433,13 @@ export default Canister({
         return Err({ NotFound: "Product not found" });
       }
 
-      if (product.buyerAddress) {
+      if ("Some" in product.buyerAddress) {
         return Err({ Error: "Product has already been bid on." });
       }
 
-      product.buyerAddress = buyerAddress;
+      product.buyerAddress = {
+        Some: buyerAddress,
+      };
       product.status = "Bid Placed";
       productsStorage.insert(productId, product);
 
