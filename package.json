@@ -18,7 +18,7 @@
     "gen-deploy:local": "dfx generate dfinity_js_backend && dfx deploy --network=local"
   },
   "dependencies": {
-    "azle": "^0.19.0",
+    "azle": "^0.24.1",
     "uuid": "^9.0.0"
   },
   "devDependencies": {
