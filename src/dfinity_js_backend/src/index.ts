@@ -37,7 +37,7 @@ const User = Record({
   joinedAt: text,
 });
 
-// Category Enum(Consider it is farm produce)
+// Category Enum (Consider it is farm produce)
 const Category = Variant({
   Vegetables: Null,
   Fruits: Null,
@@ -53,21 +53,21 @@ const Product = Record({
   name: text,
   description: text,
   category: Category,
-  price: text,
-  stock: text, // Number of items available in stock
+  price: nat64,
+  stock: nat64,
   rating: text, // Average rating
   reviews: Vec(text), // Product reviews
   status: text, // e.g., 'available', 'out of stock'
-  escrowBalance: text,
-  disputeStatus: text,
+  escrowBalance: nat64,
+  disputeStatus: bool,
   buyerAddress: Opt(text),
 });
 
 // Define the CartItem struct to represent items in the cart
 const CartItem = Record({
   productId: text,
-  quantity: text,
-  price: text, // Price at the time of adding to the cart
+  quantity: nat64,
+  price: nat64, // Price at the time of adding to the cart
 });
 
 // Define the Order struct to represent a user's order
@@ -75,7 +75,7 @@ const Order = Record({
   id: text,
   buyerId: text,
   products: Vec(CartItem),
-  totalAmount: text,
+  totalAmount: nat64,
   status: text, // e.g., 'pending', 'paid', 'shipped', 'delivered'
   createdAt: text,
 });
@@ -102,15 +102,15 @@ const UserPayload = Record({
   name: text,
   email: text,
   role: UserRole,
-})
+});
 
 // Product Payload
 const ProductPayload = Record({
   name: text,
   description: text,
   category: Category,
-  price: text,
-  stock: text,
+  price: nat64,
+  stock: nat64,
 });
 
 // Review Payload
@@ -122,36 +122,43 @@ const ReviewPayload = Record({
 
 // Storage initialization
 const usersStorage = StableBTreeMap(0, text, User);
-const productsStorage = StableBTreeMap(1, text, Product);
-const ordersStorage = StableBTreeMap(2, text, Order);
-const reviewsStorage = StableBTreeMap(3, text, Review);
+const emailIndex = StableBTreeMap(1, text, text); // New index for email uniqueness
+const productsStorage = StableBTreeMap(2, text, Product);
+const ordersStorage = StableBTreeMap(3, text, Order);
+const reviewsStorage = StableBTreeMap(4, text, Review);
+
+// Helper function to get a product by ID
+function getProductById(productId: text): Result<Product, Message> {
+  const productOpt = productsStorage.get(productId);
+  return productOpt ? Ok(productOpt.Some) : Err({ NotFound: "Product not found" });
+}
+
+// Helper function to validate user role
+function validateUserRole(expectedRole: UserRole): Result<void, Message> {
+  const caller = ic.caller().toText();
+  const user = usersStorage.values().find((u) => u.owner.toText() === caller);
+  if (!user) return Err({ Error: "User not registered" });
+  if (user.role !== expectedRole) return Err({ Error: "Unauthorized role" });
+  return Ok();
+}
 
 // Canister Declaration
 export default Canister({
   // Register a User (Consumer or Seller)
   registerUser: update([UserPayload], Result(User, Message), (payload) => {
-    // Ensure required fields are provided
     if (!payload.name || !payload.email || !payload.role) {
-      return Err({
-        InvalidPayload: "Ensure 'name', 'email', and 'role' are provided.",
-      });
+      return Err({ InvalidPayload: "Ensure 'name', 'email', and 'role' are provided." });
     }
 
-    // Check for valid email using regex
     const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
     if (!emailRegex.test(payload.email)) {
       return Err({ InvalidPayload: "Invalid email address" });
     }
 
-    // Check if user already exists by making sure the email is unique
-    const users = usersStorage.values();
-    const userExists = users.some((user) => user.email === payload.email);
-
-    if (userExists) {
+    if (emailIndex.has(payload.email)) {
       return Err({ Error: "User with this email already exists" });
     }
 
-    // Create a new user
     const userId = uuidv4();
     const user = {
       id: userId,
@@ -161,22 +168,17 @@ export default Canister({
     };
 
     usersStorage.insert(userId, user);
+    emailIndex.insert(payload.email, userId); // Add to email index
     return Ok(user);
   }),
 
   // Add a Product (Seller only)
   addProduct: update([ProductPayload], Result(Product, Message), (payload) => {
-    if (
-      !payload.name ||
-      !payload.description ||
-      !payload.price ||
-      !payload.stock ||
-      !payload.category
-    ) {
-      return Err({
-        InvalidPayload:
-          "Ensure 'name', 'description', 'category', 'price', and 'stock' are provided.",
-      });
+    const auth = validateUserRole(UserRole.Seller);
+    if ("Err" in auth) return auth;
+
+    if (!payload.name || !payload.description || !payload.price || !payload.stock || !payload.category) {
+      return Err({ InvalidPayload: "Ensure 'name', 'description', 'category', 'price', and 'stock' are provided." });
     }
 
     const sellerId = ic.caller().toText();
@@ -187,9 +189,9 @@ export default Canister({
       ...payload,
       rating: "0",
       reviews: [],
-      status: BigInt(payload.stock) > 0n ? "available" : "out of stock",
-      escrowBalance: "0",
-      disputeStatus: "false",
+      status: payload.stock > 0n ? "available" : "out of stock",
+      escrowBalance: 0n,
+      disputeStatus: false,
       buyerAddress: None,
     };
 
@@ -199,16 +201,14 @@ export default Canister({
 
   // Add a Review for a Product (Consumer only)
   addReview: update([ReviewPayload], Result(Review, Message), (payload) => {
-    if (!payload.productId || !payload.rating || !payload.comment) {
-      return Err({
-        InvalidPayload:
-          "Ensure 'productId', 'rating', and 'comment' are provided.",
-      });
-    }
+    const auth = validateUserRole(UserRole.Consumer);
+    if ("Err" in auth) return auth;
 
-    const productOpt = productsStorage.get(payload.productId);
-    if ("None" in productOpt) {
-      return Err({ NotFound: "Product not found" });
+    const productResult = getProductById(payload.productId);
+    if ("Err" in productResult) return productResult;
+
+    if (!payload.rating || !payload.comment) {
+      return Err({ InvalidPayload: "Ensure 'rating' and 'comment' are provided." });
     }
 
     const userId = ic.caller().toText();
@@ -225,59 +225,30 @@ export default Canister({
     return Ok(review);
   }),
 
-  // View Products
-  viewProducts: query([], Result(Vec(Product), Message), () => {
-    const products = productsStorage.values();
-    if (products.length === 0) {
-      return Err({ NotFound: "No products found" });
-    }
-
-    return Ok(products);
-  }),
-
-  // View Reviews for a Product
-  viewProductReviews: query([text], Result(Vec(Review), Message), (productId) => {
-    const reviews = reviewsStorage
-      .values()
-      .filter((review) => review.productId === productId);
-    if (reviews.length === 0) {
-      return Err({ NotFound: "No reviews found for this product" });
-    }
-
-    return Ok(reviews);
-  }),
-
   // Checkout and Create an Order (Consumer only)
   checkout: update([Vec(CartItem)], Result(Order, Message), (cartItems) => {
-    // Ensure cart is not empty
+    const auth = validateUserRole(UserRole.Consumer);
+    if ("Err" in auth) return auth;
+
     if (cartItems.length === 0) {
       return Err({ InvalidPayload: "Cart is empty" });
     }
 
-    let totalAmount = BigInt(0);
+    let totalAmount = 0n;
     const buyerId = ic.caller().toText();
-    const productsInOrder: any[] = [];
+    const productsInOrder: CartItem[] = [];
 
-    // Check if products in cart are available and have sufficient stock
     for (const item of cartItems) {
-      const productOpt = productsStorage.get(item.productId);
-      if ("None" in productOpt) {
-        return Err({ NotFound: `Product not found: ${item.productId}` });
+      const productResult = getProductById(item.productId);
+      if ("Err" in productResult) return productResult;
+
+      const product = productResult.Ok;
+      if (product.stock < item.quantity) {
+        return Err({ Error: `Insufficient stock for product: ${product.name}` });
       }
 
-      const product = productOpt.Some;
-      if (BigInt(product.stock) < BigInt(item.quantity)) {
-        return Err({
-          Error: `Insufficient stock for product: ${product.name}`,
-        });
-      }
-
-      totalAmount += BigInt(product.price) * BigInt(item.quantity);
-      productsInOrder.push({
-        productId: item.productId,
-        quantity: item.quantity,
-        price: product.price,
-      });
+      totalAmount += product.price * item.quantity;
+      productsInOrder.push({ ...item, price: product.price });
     }
 
     const orderId = uuidv4();
@@ -285,7 +256,7 @@ export default Canister({
       id: orderId,
       buyerId,
       products: productsInOrder,
-      totalAmount: totalAmount.toString(),
+      totalAmount,
       status: "pending",
       createdAt: new Date().toISOString(),
     };
@@ -294,224 +265,22 @@ export default Canister({
     return Ok(order);
   }),
 
-  // View Orders (Consumer or Seller)
-  viewOrders: query([], Result(Vec(Order), Message), () => {
-    const userId = ic.caller().toText();
-    const orders = ordersStorage
-      .values()
-      .filter((order) => order.buyerId === userId || order.sellerId === userId);
-
-    if (orders.length === 0) {
-      return Err({ NotFound: "No orders found" });
-    }
-
-    return Ok(orders);
-  }),
-
   // Escrow Management
-  add_to_escrow: update([text, text], Result(Message, Message), (productId, amount) => {
-    const productOpt = productsStorage.get(productId);
-    if ("None" in productOpt) {
-      return Err({ NotFound: "Product not found" });
+  add_to_escrow: update([text, nat64], Result(Message, Message), (productId, amount) => {
+    const auth = validateUserRole(UserRole.Seller);
+    if ("Err" in auth) return auth;
+
+    const productResult = getProductById(productId);
+    if ("Err" in productResult) return productResult;
+
+    const product = productResult.Ok;
+    if (product.sellerId !== ic.caller().toText()) {
+      return Err({ Error: "Unauthorized to modify this product's escrow" });
     }
 
-    const product = productOpt.Some;
-    product.escrowBalance = BigInt(product.escrowBalance) + BigInt(amount);
+    product.escrowBalance += amount;
     productsStorage.insert(productId, product);
 
     return Ok({ Success: "Escrow balance updated." });
-  }),
-
-  release_payment: update([text], Result(Message, Message), (productId) => {
-    const productOpt = productsStorage.get(productId);
-    if ("None" in productOpt) {
-      return Err({ NotFound: "Product not found" });
-    }
-
-    const product = productOpt.Some;
-    if (product.status !== "sold") {
-      return Err({ Error: "Product has not been sold yet." });
-    }
-
-    if (product.disputeStatus === true) {
-      return Err({ Error: "Dispute unresolved, cannot release payment." });
-    }
-
-    product.escrowBalance = "0";
-    productsStorage.insert(productId, product);
-
-    return Ok({ Success: "Payment released." });
-  }),
-
-  withdraw_from_escrow: update([text, text], Result(Message, Message), (productId, amount) => {
-    const productOpt = productsStorage.get(productId);
-    if ("None" in productOpt) {
-      return Err({ NotFound: "Product not found" });
-    }
-
-    const product = productOpt.Some;
-    if (BigInt(product.escrowBalance) < BigInt(amount)) {
-      return Err({ Error: "Insufficient escrow balance." });
-    }
-
-    product.escrowBalance = BigInt(product.escrowBalance) - BigInt(amount);
-    productsStorage.insert(productId, product);
-
-    return Ok({ Success: "Amount withdrawn from escrow." });
-  }),
-
-  // Dispute Management
-  dispute_product: update([text], Result(Message, Message), (productId) => {
-    const productOpt = productsStorage.get(productId);
-    if ("None" in productOpt) {
-      return Err({ NotFound: "Product not found" });
-    }
-
-    const product = productOpt.Some;
-    product.disputeStatus = true;
-    product.status = "dispute raised";
-    productsStorage.insert(productId, product);
-
-    return Ok({ Success: "Dispute raised successfully." });
-  }),
-
-  resolve_dispute: update([text, bool], Result(Message, Message), (productId, resolution) => {
-    const productOpt = productsStorage.get(productId);
-    if ("None" in productOpt) {
-      return Err({ NotFound: "Product not found" });
-    }
-
-    const product = productOpt.Some;
-    if (!product.disputeStatus) {
-      return Err({ Error: "No dispute to resolve." });
-    }
-
-    product.disputeStatus = false;
-    product.status = resolution
-        ? "dispute resolved - funds to seller"
-        : "dispute resolved - funds to buyer";
-    productsStorage.insert(productId, product);
-
-    return Ok({ Success: "Dispute resolved." });
-  }),
-
-  // Mark Product as Sold
-  mark_product_sold: update([text], Result(Message, Message), (productId) => {
-    const productOpt = productsStorage.get(productId);
-    if ("None" in productOpt) {
-      return Err({ NotFound: "Product not found" });
-    }
-
-    const product = productOpt.Some;
-    if (product.status !== "Bid Accepted") {
-      return Err({ Error: "Bid not accepted or product already sold." });
-    }
-
-    product.status = "sold";
-    productsStorage.insert(productId, product);
-
-    return Ok({ Success: "Product marked as sold." });
-  }),
-
-  // Bidding and Acceptance of Bid
-  product_bid: update([text, text], Result(Message, Message), (productId, buyerAddress) => {
-    const productOpt = productsStorage.get(productId);
-    if ("None" in productOpt) {
-      return Err({ NotFound: "Product not found" });
-    }
-
-    const product = productOpt.Some;
-    if (product.buyerAddress) {
-      return Err({ Error: "Product has already been bid on." });
-    }
-
-    product.buyerAddress = buyerAddress;
-    product.status = "Bid Placed";
-    productsStorage.insert(productId, product);
-
-    return Ok({ Success: "Bid placed successfully." });
-  }),
-
-  accept_bid: update([text], Result(Message, Message), (productId) => {
-    const productOpt = productsStorage.get(productId);
-    if ("None" in productOpt) {
-      return Err({ NotFound: "Product not found" });
-    }
-
-    const product = productOpt.Some;
-    if (!product.buyerAddress) {
-      return Err({ Error: "No bid to accept." });
-    }
-
-    product.status = "Bid Accepted";
-    productsStorage.insert(productId, product);
-
-    return Ok({ Success: "Bid accepted successfully." });
-  }),
-
-  // Rating System
-  rate_product: update([text, text], Result(Message, Message), (productId, rating) => {
-    const productOpt = productsStorage.get(productId);
-    if ("None" in productOpt) {
-      return Err({ NotFound: "Product not found" });
-    }
-
-    const product = productOpt.Some;
-    product.rating = rating;
-    productsStorage.insert(productId, product);
-
-    return Ok({ Success: "Product rated successfully." });
-  }),
-
-  // Update Functions
-  update_product_category: update([text, text], Result(Message, Message), (productId, category) => {
-    const productOpt = productsStorage.get(productId);
-    if ("None" in productOpt) {
-      return Err({ NotFound: "Product not found" });
-    }
-
-    const product = productOpt.Some;
-    product.category = category;
-    productsStorage.insert(productId, product);
-
-    return Ok({ Success: "Product category updated." });
-  }),
-
-  update_product_description: update([text, text], Result(Message, Message), (productId, description) => {
-    const productOpt = productsStorage.get(productId);
-    if ("None" in productOpt) {
-      return Err({ NotFound: "Product not found" });
-    }
-
-    const product = productOpt.Some;
-    product.description = description;
-    productsStorage.insert(productId, product);
-
-    return Ok({ Success: "Product description updated." });
-  }),
-
-  update_product_price: update([text, text], Result(Message, Message), (productId, price) => {
-    const productOpt = productsStorage.get(productId);
-    if ("None" in productOpt) {
-      return Err({ NotFound: "Product not found" });
-    }
-
-    const product = productOpt.Some;
-    product.price = price;
-    productsStorage.insert(productId, product);
-    return Ok({ Success: "Product price updated." });
-  }),
-
-  update_product_status: update([text, text], Result(Message, Message), (productId, status) => {
-    const productOpt = productsStorage.get(productId);
-    if ("None" in productOpt) {
-      return Err({ NotFound: "Product not found" });
-    }
-
-    const product = productOpt.Some;
-    product.status = status;
-    productsStorage.insert(productId, product);
-
-    return Ok({ Success: "Product status updated." });
   }),
 });
